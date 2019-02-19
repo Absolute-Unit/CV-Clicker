@@ -1,8 +1,6 @@
 """
 CV Clicker
 
-The 'not stupid' Auto Clicker.
-
 A simple programm that searches a specified area on your desktop repeatedly for a
 specific image, moves the cursor there and repeatedly simulates mouse clicks.
 
@@ -21,9 +19,9 @@ from pynput.mouse import Button, Controller
 # init mouse controller
 MOUSE = Controller()
 
-# TODO: Read these from a config file
+# TODO: Read these from a config file and allow key cominations.
 # set which keys close the programm
-EXIT_KEYS = ['q']
+EXIT_KEYS = ['q', 'Key.ctrl_l']
 
 # set mouse config
 CLICK_OFFSET = [-65, 40]
@@ -37,7 +35,7 @@ SEARCH_ATTEMPTS_PER_RUN = 5
 GAME_RESOLTUTION = [1920, 1080]
 
 # set absolute game position [x,y] eg: [312, 186]
-GAME_POSITION = [0,0]
+GAME_POSITION = [0, 0]
 
 # calculate coordinates of area to capture [left_x, top_y, right_x, bottom_y]
 CAPTURE_AREA = list(map(add, GAME_POSITION + GAME_POSITION,
@@ -47,9 +45,6 @@ CAPTURE_AREA = list(map(add, GAME_POSITION + GAME_POSITION,
 TARGET_IMAGE = cv2.imread('src/images/target.jpg')
 TARGET_IMAGE_WIDTH = TARGET_IMAGE.shape[0]
 TARGET_IMAGE_HEIGHT = TARGET_IMAGE.shape[1]
-
-# set exit flag TODO: non-global exit
-EXIT_FLAG = 0
 
 
 def get_screen_grab(bounding_box=None):
@@ -87,7 +82,8 @@ def search_for_target(image, target=TARGET_IMAGE, n_runs=SEARCH_ATTEMPTS_PER_RUN
         new_target (list of int): The new target coordinates.
 
     Notes:
-        For more information on the search method see https://docs.opencv.org/2.4/modules/imgproc/doc/object_detection.html.
+        For more information on the search method see:
+        https://docs.opencv.org/2.4/modules/imgproc/doc/object_detection.html.
     """
     min_val = max_val = 0
     for search_count in range(n_runs):
@@ -125,7 +121,6 @@ def calculate_target_position(search_result, target_width=None, target_height=No
         target_width = TARGET_IMAGE_WIDTH
     if target_height is None:
         target_height = TARGET_IMAGE_HEIGHT
-    # print('Calculating target position.')
     top_left = search_result
     bottom_right = (top_left[0] + int(target_width),
                     top_left[1] + int(target_height))
@@ -190,43 +185,57 @@ def init_keyboard_listener():
     """
     def on_press(key):
         """
-        Executed whenever a key is pressed.
+        Executed whenever a key is pressed. If the pressed key is in EXIT_KEYS it stops all threads.
         """
-        global EXIT_FLAG
         try:
-            # print('Alphanumeric key {0} pressed.'.format(key.char))
+            print('Alphanumeric key {0} pressed.'.format(key.char))
             if str(key)[1:-1] in EXIT_KEYS:
-                EXIT_FLAG = 1
+                stop_threads()
         except AttributeError:
-            # print('Special key {0} pressed.'.format(key))
-            # TODO: Get non alphanumeric keys working.
+            print('Special key {0} pressed.'.format(key))
             if str(key) in EXIT_KEYS:
-                EXIT_FLAG = 1
+                stop_threads()
     listener = Listener(on_press=on_press)
     listener.start()
 
 
-class SimpleThread(threading.Thread):
-    # TODO: proper doc
+class Thread(threading.Thread):
     """
-    Simple thread implementation.
+    Simple stoppable thread implementation.
     """
 
     def __init__(self, thread_id, name):
         threading.Thread.__init__(self)
         self.thread_id = thread_id
         self.name = name
+        self.alive = False
 
     def run(self):
         print("Starting " + self.name)
-        global EXIT_FLAG
-        while EXIT_FLAG != 1:
-            # TODO proper runtime implementation based on thread. (Thread Action Handler or something)
-            if self.thread_id == 0:
+        self.alive = True
+        if self.thread_id == 0:
+            while self.alive:
                 search_handler()
-            elif self.thread_id == 1:
+        elif self.thread_id == 1:
+            while self.alive:
                 click_handler()
-        print("Exiting " + self.name)
+
+    def stop(self):
+        """
+        Stop thread if thread is alive.
+        """
+        if self.alive:
+            print("Exiting " + self.name)
+            self.alive = False
+            self.join()
+
+
+def stop_threads():
+    """
+    Stops all threads, starting from the last one and going to the first.
+    """
+    for thread_number in range(threading.active_count() - 1, 0, -1):
+        threading.enumerate()[thread_number].stop()
 
 
 def main():
@@ -237,8 +246,8 @@ def main():
     """
     init_keyboard_listener()
     # create new threads
-    search_thread = SimpleThread(0, "Thread-Search")
-    click_thread = SimpleThread(1, "Thread-Click")
+    search_thread = Thread(thread_id=0, name="Thread-Search")
+    click_thread = Thread(thread_id=1, name="Thread-Click")
     # start threads
     if SEARCH_RUNS_PER_SECOND != 0:
         search_thread.start()
